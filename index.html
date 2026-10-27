@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Surallah Public Cemetery Directory</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    
+    <style>
+        :root {
+            --primary-color: #2d3748;
+            --accent-color: #319795;
+            --bg-light: #f7fafc;
+            --border-color: #e2e8f0;
+            --text-muted: #718096;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        /* Outer Flexbox Sidebar Wrapper */
+        #sidebar {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            z-index: 2000; /* High z-index keeps button above Leaflet layers */
+            display: flex;
+            align-items: flex-start;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Collapsed State - Slides inner sidebar offscreen while keeping button visible at edge */
+        #sidebar.collapsed {
+            transform: translateX(-375px);
+        }
+
+        /* Inner Content Card */
+        .sidebar-inner {
+            width: 360px;
+            flex-shrink: 0;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            max-height: calc(100vh - 30px);
+        }
+
+        /* Sidebar Toggle Tab Button */
+        .sidebar-toggle-btn {
+            width: 42px;
+            height: 48px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 0 10px 10px 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 4px 2px 10px rgba(0, 0, 0, 0.2);
+            font-size: 18px;
+            flex-shrink: 0;
+            margin-top: 12px; /* Aligns vertically with dark header */
+            margin-left: -1px; /* Seamless connection to sidebar edge */
+            z-index: 2001;
+            outline: none;
+            transition: background 0.2s;
+        }
+
+        .sidebar-toggle-btn:hover {
+            background: #1a202c;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .sidebar-header h2 { margin: 0; font-size: 20px; font-weight: 700; }
+        .sidebar-header p { margin: 4px 0 0 0; font-size: 13px; color: #a0aec0; }
+
+        /* Search Bar */
+        .search-container {
+            padding: 15px;
+            background: white;
+            border-bottom: 1px solid var(--border-color);
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .search-icon { position: absolute; left: 25px; color: var(--text-muted); }
+
+        #search-input {
+            width: 100%;
+            padding: 10px 10px 10px 35px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        #search-input:focus { border-color: var(--accent-color); }
+
+        .results-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 15px;
+            right: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1010;
+            display: none;
+            border: 1px solid var(--border-color);
+        }
+
+        .result-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            font-size: 13px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .result-item:hover { background: #edf2f7; }
+
+        /* Panel Layout */
+        .details-card {
+            padding: 20px;
+            flex-grow: 1;
+            overflow-y: auto;
+            background: var(--bg-light);
+        }
+
+        .empty-state {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .placeholder-icon { font-size: 48px; margin-bottom: 12px; color: #cbd5e0; }
+        .info-title { font-size: 20px; font-weight: 700; color: var(--primary-color); margin: 0 0 12px 0; line-height: 1.3; }
+
+        .info-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+        }
+
+        .badge-occupied { background: #fed7d7; color: #9b2c2c; }
+        .badge-vacant { background: #c6f6d5; color: #22543d; }
+
+        .info-meta {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 14px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .info-row:last-child { border-bottom: none; }
+        .info-label { color: var(--text-muted); font-weight: 500; }
+        .info-value { color: var(--primary-color); font-weight: 600; text-align: right; max-width: 60%; word-wrap: break-word; }
+
+        /* Map Canvas */
+        #map {
+            width: 100%;
+            height: 100vh; 
+            min-height: 400px;
+            background-color: #e5e5e5;
+        }
+
+        /* Shift Leaflet zoom controls clear of sidebar & toggle tab */
+        .leaflet-left .leaflet-control { 
+            margin-left: 430px; 
+            transition: margin-left 0.3s ease;
+        }
+
+        body.sidebar-collapsed .leaflet-left .leaflet-control {
+            margin-left: 60px;
+        }
+
+        .leaflet-top .leaflet-control { margin-top: 15px; }
+
+        /* Legend */
+        .info.legend {
+            background: white;
+            padding: 12px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            color: #333;
+            font-family: Arial, sans-serif;
+            line-height: 1.5;
+            margin-right: 20px !important; 
+            margin-bottom: 30px !important;
+            position: relative;
+            z-index: 9999 !important; 
+        }
+
+        .info.legend h4 {
+            margin: 0 0 10px 0;
+            font-size: 15px;
+            font-weight: bold;
+            text-align: center;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .legend-item:last-child { margin-bottom: 0; }
+
+        .legend-icon {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 24px;
+            height: 24px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+            margin-right: 10px;
+            color: #4b5563; 
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <!-- Main Sidebar Panel -->
+        <div class="sidebar-inner">
+            <div class="sidebar-header">
+                <h2>Surallah Public Cemetery</h2>
+                <p>Interactive GIS Plot Directory</p>
+            </div>
+            
+            <div class="search-container">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                <input type="text" id="search-input" placeholder="Search deceased name, plot ID, or lot holder...">
+                <div id="search-results" class="results-dropdown"></div>
+            </div>
+
+            <div id="details-panel" class="details-card empty-state">
+                <div id="details-content">
+                    <i class="fa-solid fa-monument placeholder-icon"></i>
+                    <p>Select a tomb plot or use the search field above to explore cemetery directory records.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toggle Button attached as direct flex child -->
+        <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Collapse Sidebar" aria-label="Toggle Sidebar">
+            <i class="fa-solid fa-chevron-left" id="toggle-icon"></i>
+        </button>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script src="PubCemMainStruct.js"></script>
+    <script src="ChapelPol.js"></script>
+    <script src="FenceStruct.js"></script>
+    <script src="MapStructure.js"></script>
+    <script src="RoadCemetery.js"></script>
+    <script src="Tomb.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            if (typeof L === 'undefined') {
+                document.getElementById('map').innerHTML = `
+                    <div style="padding: 40px; color: #742a2a; text-align: center; margin-left: 360px;">
+                        <h2 style="font-family: sans-serif;">⚠️ Map Engine Failed to Load</h2>
+                        <p style="font-family: sans-serif;">Please check your internet connection.</p>
+                    </div>`;
+                return; 
+            }
+
+            const map = L.map('map', {
+                zoomControl: true,
+                maxZoom: 25
+            }).setView([6.350617, 124.725201], 20);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 22,
+                attribution: 'cjvaliente:) | © OpenStreetMap contributors'
+            }).addTo(map);
+
+            // Sidebar Toggle Controller
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('sidebar-toggle');
+            const toggleIcon = document.getElementById('toggle-icon');
+
+            function toggleSidebar() {
+                sidebar.classList.toggle('collapsed');
+                document.body.classList.toggle('sidebar-collapsed');
+                
+                if (sidebar.classList.contains('collapsed')) {
+                    toggleIcon.className = 'fa-solid fa-chevron-right';
+                    toggleBtn.setAttribute('title', 'Expand Sidebar');
+                } else {
+                    toggleIcon.className = 'fa-solid fa-chevron-left';
+                    toggleBtn.setAttribute('title', 'Collapse Sidebar');
+                }
+            }
+
+            function openSidebar() {
+                if (sidebar && sidebar.classList.contains('collapsed')) {
+                    toggleSidebar();
+                }
+            }
+
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', toggleSidebar);
+            }
+
+            // Map Legend
+            const legend = L.control({ position: 'bottomright' });
+            legend.onAdd = function () {
+                const div = L.DomUtil.create('div', 'info legend');
+                div.innerHTML = `
+                    <h4>Cemetery Legend</h4>
+                    <div class="legend-item"><span class="legend-icon" style="background:#AEB2A7; border:1px solid #000000;"></span> Vacant</div>
+                    <div class="legend-item"><span class="legend-icon" style="background:#fed7d7; border:1px solid #9b2c2c;"></span> Occupied (Unpaid)</div>
+                    <div class="legend-item"><span class="legend-icon" style="background:#e8e337; border:1px solid #2b6cb0;"></span> Occupied (Paid)</div>
+                    <div class="legend-item"><span class="legend-icon"><i class="fa-solid fa-church"></i></span> Chapel</div>
+                `;
+                return div;
+            };
+            legend.addTo(map);
+
+            // Live Database Cemetery Plot
+            const liveDataMapCemetery = new Map();
+            let allSearchableFeatures = [];
+
+            // Feature Styles
+            const baseCemeteryStyle = { color: "#2f855a", fillColor: "#BBD58E", weight: 2.5, fillOpacity: 0.8, interactive: false };
+            const fenceStyle = { color: "#4a5568", weight: 3, opacity: 0.8, dashArray: "5, 5", interactive: false };
+            const roadStyle = { color: "#FFFFFF", weight: 6, opacity: 0.9, interactive: false };
+            const blockStyle = { color: "#718096", fillColor: "#cbd5e0", weight: 1.5, fillOpacity: 0.6, interactive: false };
+            const chapelStyle = { color: "#4a5568", fillColor: "#9f7aea", weight: 2, fillOpacity: 0.8, interactive: false };
+            const defaultTombStyle = { color: "#A9A9A9", fillColor: "#ebf8ff", weight: 1, fillOpacity: 0.9 };
+
+            // Tomb Status Colors
+            const vacantStyle = { color: "#22543d", fillColor: "#A9A9A9", weight: 1, fillOpacity: 0.8 };    
+            const occupiedStyle = { color: "#9b2c2c", fillColor: "#fed7d7", weight: 1, fillOpacity: 0.85 };  
+            const occupiedPaidStyle = { color: "#2b6cb0", fillColor: "#e8e337", weight: 1, fillOpacity: 0.85 }; 
+            const highlightStyle = { color: "#3182ce", fillColor: "#63b3ed", weight: 3, fillOpacity: 0.95 };
+
+            function createLandmarkIcon(iconClass, color) {
+                return L.divIcon({
+                    html: `<div style="background:white;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,0.4);border:2px solid ${color};"><i class="fa-solid ${iconClass}" style="color:${color};font-size:12px;"></i></div>`,
+                    className: '',
+                    iconSize: [26, 26],
+                    iconAnchor: [13, 13]
+                });
+            }
+
+            function createGroundIcon(url, centerLat, centerLng, diameterMeters, brightness) {
+                const metersPerDegLat = 111320;
+                const metersPerDegLng = 111320 * Math.cos(centerLat * Math.PI / 180);
+                const halfLat = (diameterMeters / 2) / metersPerDegLat;
+                const halfLng = (diameterMeters / 2) / metersPerDegLng;
+                const bounds = [
+                    [centerLat - halfLat, centerLng - halfLng],
+                    [centerLat + halfLat, centerLng + halfLng]
+                ];
+                const overlay = L.imageOverlay(url, bounds, { interactive: false });
+                overlay.on('add', () => {
+                    const el = overlay.getElement();
+                    if (el) el.style.filter = `brightness(${brightness})`;
+                });
+                return overlay;
+            }
+
+            function mapStructurePointToLayer(feature, latlng) {
+                const type = (feature.properties && feature.properties.Type) || 'Landmark';
+                let iconClass = 'fa-location-dot', color = '#4a5568';
+                if (type === 'Chapel') { iconClass = 'fa-church'; color = '#9f7aea'; }
+                else if (type === 'Apartment Tombs') { iconClass = 'fa-cross'; color = '#3182ce'; }
+                else if (type.toLowerCase().includes('bayani')) { iconClass = 'fa-award'; color = '#dd6b20'; }
+                return L.marker(latlng, { icon: createLandmarkIcon(iconClass, color) }).bindPopup(`<strong>${type}</strong>`);
+            }
+
+            function generateTombId(feature) {
+                const props = feature.properties || {};
+                const rawId = props.ID !== undefined ? props.ID : (props.id !== undefined ? props.id : (props.Lot !== undefined ? props.Lot : (props.tomb_id || props.PLOT_ID || '')));
+                const paddedId = String(rawId).trim().padStart(2, '0');
+                
+                let blockVal = props.Block || props.block || 'A';
+                blockVal = String(blockVal).trim();
+                
+                return `Tomb Block ${blockVal.toUpperCase()} - Lot ${paddedId}`;
+            }
+
+            function applyLiveStatusColor(layer, tombId) {
+                const liveInfo = liveDataMapCemetery.get(tombId);
+                if (liveInfo) {
+                    const status = String(liveInfo.status || '').toLowerCase().trim();
+                    const payment = String(liveInfo.payment || '').toLowerCase().trim();
+                    
+                    const isOccupied = (status === 'occupied' || status === 'true');
+                    const isPaid = (payment === 'paid' || payment === 'true');
+
+                    if (isOccupied && isPaid) {
+                        layer.setStyle(occupiedPaidStyle);
+                    } else if (isOccupied) {
+                        layer.setStyle(occupiedStyle);
+                    } else {
+                        layer.setStyle(vacantStyle);
+                    }
+                } else {
+                    layer.setStyle(vacantStyle);
+                }
+            }
+
+            function refreshAllMapColors() {
+                allSearchableFeatures.forEach(item => {
+                    applyLiveStatusColor(item.layer, item.id);
+                });
+            }
+
+            function handleTombClick(e) {
+                openSidebar();
+                const layer = e.target;
+                refreshAllMapColors(); 
+                layer.setStyle(highlightStyle); 
+                
+                const trackingData = allSearchableFeatures.find(item => item.layer === layer);
+                if (!trackingData) return;
+
+                const tombId = trackingData.id;
+                const liveInfo = liveDataMapCemetery.get(tombId);
+                
+                const panel = document.getElementById('details-panel');
+                if (panel) panel.classList.remove('empty-state');
+                
+                if (liveInfo) {
+                    const deceased = liveInfo.deceased || 'Vacant / Unassigned';
+                    const deceased2 = liveInfo.deceased2 || 'N/A';
+                    const holder = liveInfo.holder || 'N/A';
+                    const deathDate = liveInfo.deathDate || 'N/A';
+                    const lotType = liveInfo.lotType || 'N/A';
+                    const payment = liveInfo.payment || 'N/A';
+                    const amountpaid = liveInfo.amountpaid || 'N/A';
+                    const permits = liveInfo.permits || 'N/A';
+                    const remarks = liveInfo.remarks || 'N/A';
+                    const dateValidated = liveInfo.dateValidated || 'N/A';
+                    const validationStatus = liveInfo.validationStatus || 'N/A';
+
+                    const status = String(liveInfo.status || 'Vacant').toLowerCase().trim();
+                    const isOccupied = (status === 'occupied' || status === 'true');
+                    const badgeClass = isOccupied ? 'badge-occupied' : 'badge-vacant';
+                    const displayStatus = isOccupied ? 'Occupied' : 'Vacant Plot';
+                    
+                    document.getElementById('details-content').innerHTML = `
+                        <h3 class="info-title">${tombId}</h3>
+                        <span class="info-badge ${badgeClass}">${displayStatus}</span>
+                        <div class="info-meta">
+                            <div class="info-row"><span class="info-label">Deceased Name</span><span class="info-value" style="color:#2b6cb0;">${deceased}</span></div>
+                            <div class="info-row"><span class="info-label">2nd Deceased Name</span><span class="info-value" style="color:#2b6cb0;">${deceased2}</span></div>
+                            <div class="info-row"><span class="info-label">Death Date</span><span class="info-value">${deathDate}</span></div>
+                            <div class="info-row"><span class="info-label">Lot Type</span><span class="info-value">${lotType}</span></div>
+                            <div class="info-row"><span class="info-label">Payment Status</span><span class="info-value">${payment}</span></div>
+                            <div class="info-row"><span class="info-label">Amount Paid</span><span class="info-value">${amountpaid}</span></div>
+                            <div class="info-row"><span class="info-label">Registered Lot Holder</span><span class="info-value">${holder}</span></div>
+                            <div class="info-row"><span class="info-label">Permits</span><span class="info-value">${permits}</span></div>
+                            <div class="info-row"><span class="info-label">Remarks</span><span class="info-value">${remarks}</span></div>
+                            <div class="info-row"><span class="info-label">Date Validated</span><span class="info-value">${dateValidated}</span></div>
+                            <div class="info-row"><span class="info-label">Validation Status</span><span class="info-value">${validationStatus}</span></div>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('details-content').innerHTML = `
+                        <h3 class="info-title">${tombId}</h3>
+                        <span class="info-badge badge-vacant">Vacant Plot</span>
+                        <div class="info-meta">
+                            <div class="info-row"><span class="info-label">Deceased Name</span><span class="info-value" style="color:#718096; font-style:italic;">No record</span></div>
+                            <div class="info-row"><span class="info-label">2nd Deceased Name</span><span class="info-value" style="color:#2b6cb0;">N/A</span></div>
+                            <div class="info-row"><span class="info-label">Death Date</span><span class="info-value">N/A</span></div>
+                            <div class="info-row"><span class="info-label">Lot Type</span><span class="info-value">N/A</span></div>
+                            <div class="info-row"><span class="info-label">Payment Status</span><span class="info-value">-</span></div>
+                            <div class="info-row"><span class="info-label">Amount Paid</span><span class="info-value">-</span></div>
+                            <div class="info-row"><span class="info-label">Registered Lot Holder</span><span class="info-value">-</span></div>
+                            <div class="info-row"><span class="info-label">Permits</span><span class="info-value">N/A</span></div>
+                            <div class="info-row"><span class="info-label">Remarks</span><span class="info-value">N/A</span></div>
+                            <div class="info-row"><span class="info-label">Date Validated</span><span class="info-value">N/A</span></div>
+                            <div class="info-row"><span class="info-label">Validation Status</span><span class="info-value">N/A</span></div>
+                        </div>
+                    `;
+                }
+            }
+
+            function setupSearchEngine() {
+                const input = document.getElementById('search-input');
+                const dropdown = document.getElementById('search-results');
+                
+                if(!input || !dropdown) return;
+
+                input.addEventListener('input', (e) => {
+                    const query = e.target.value.toLowerCase().trim();
+                    dropdown.innerHTML = '';
+                    if (!query) { dropdown.style.display = 'none'; return; }
+                    
+                    const matches = allSearchableFeatures.filter(f => {
+                        const info = liveDataMapCemetery.get(f.id) || {};
+                        const deceasedName = (info.deceased || '').toLowerCase();
+                        const deceased2Name = (info.deceased2 || '').toLowerCase();
+                        const holderName = (info.holder || '').toLowerCase();
+                        const plotId = f.id.toLowerCase();
+
+                        return plotId.includes(query) || 
+                               deceasedName.includes(query) || 
+                               deceased2Name.includes(query) || 
+                               holderName.includes(query);
+                    }).slice(0, 5);
+                    
+                    if (matches.length === 0) {
+                        dropdown.innerHTML = `<div class="result-item" style="color:#718096; cursor:default;">No matching plots found</div>`;
+                        dropdown.style.display = 'block';
+                        return;
+                    }
+                    
+                    matches.forEach(m => {
+                        const info = liveDataMapCemetery.get(m.id) || {};
+                        const div = document.createElement('div');
+                        div.className = 'result-item';
+
+                        let namesList = [];
+                        if (info.deceased && info.deceased !== 'Vacant / Unassigned') namesList.push(info.deceased);
+                        if (info.deceased2 && info.deceased2 !== 'N/A') namesList.push(`2nd: ${info.deceased2}`);
+
+                        const labelText = namesList.length > 0 ? namesList.join(' | ') : 'Vacant Plot';
+
+                        div.innerHTML = `<strong>${m.id}</strong><br><small style="color:#718096;">${labelText}</small>`;
+                        div.addEventListener('click', () => {
+                            openSidebar();
+                            map.flyTo(m.layer.getBounds().getCenter(), 21, { animate: true, duration: 0.8 });
+                            setTimeout(() => { m.layer.fire('click'); }, 900);
+
+                            let fillInput = m.id;
+                            if (info.deceased && info.deceased.toLowerCase().includes(query)) fillInput = info.deceased;
+                            else if (info.deceased2 && info.deceased2.toLowerCase().includes(query)) fillInput = info.deceased2;
+                            else if (info.holder && info.holder.toLowerCase().includes(query)) fillInput = info.holder;
+                            else if (info.deceased) fillInput = info.deceased;
+
+                            input.value = fillInput;
+                            dropdown.style.display = 'none';
+                        });
+                        dropdown.appendChild(div);
+                    });
+                    dropdown.style.display = 'block';
+                });
+                
+                document.addEventListener('click', (e) => {
+                    if (!input.contains(e.target) && !dropdown.contains(e.target)) dropdown.style.display = 'none';
+                });
+            }
+
+            async function startApp() {
+                const baseLayerGroup = L.layerGroup().addTo(map);
+                const tombLayerGroup = L.layerGroup().addTo(map);
+
+                function processLayer(jsonData, layerGroup, isTomb) {
+                    if (!jsonData || !jsonData.features) return;
+                    L.geoJSON(jsonData, {
+                        style: isTomb ? defaultTombStyle : baseCemeteryStyle,
+                        onEachFeature: isTomb ? function(feature, layer) {
+                            const exactUID = generateTombId(feature);
+                            allSearchableFeatures.push({ id: exactUID, layer: layer });
+                            layer.on({ click: handleTombClick });
+                        } : null
+                    }).addTo(layerGroup);
+                }
+
+                if (typeof PubCemMainStructData !== 'undefined') L.geoJSON(PubCemMainStructData, { style: baseCemeteryStyle }).addTo(baseLayerGroup);
+                if (typeof FenceStructData !== 'undefined') L.geoJSON(FenceStructData, { style: fenceStyle }).addTo(baseLayerGroup);
+                if (typeof RoadCemeteryData !== 'undefined') L.geoJSON(RoadCemeteryData, { style: roadStyle }).addTo(baseLayerGroup);
+                if (typeof ChapelPolData !== 'undefined') L.geoJSON(ChapelPolData, { style: chapelStyle }).addTo(baseLayerGroup);
+                if (typeof MapStructureData !== 'undefined') L.geoJSON(MapStructureData, { pointToLayer: mapStructurePointToLayer }).addTo(baseLayerGroup);
+
+                if (typeof TombData !== 'undefined') processLayer(TombData, tombLayerGroup, true);
+
+                const TREE_DIAMETER_METERS = 7;
+                const TREE_BRIGHTNESS = 0.0000001;
+
+                const decorativeAnnotations = [
+                    { lat: 6.350512317, lng: 124.725234575, type: 'image', url: 'tree-icon.svg' },
+                    { lat: 6.350424822, lng: 124.725385492, type: 'image', url: 'tree-icon.svg' },
+                    { lat: 6.350698020, lng: 124.725351356, type: 'image', url: 'tree-icon.svg' },
+                    { lat: 6.350608739, lng: 124.725509459, type: 'image', url: 'tree-icon.svg' },
+                    { lat: 6.350926577, lng: 124.724618330, type: 'image', url: 'tree-icon.svg' },
+                    { lat: 6.351037285, lng: 124.724722535, type: 'image', url: 'tree-icon.svg' },
+                ];
+
+                decorativeAnnotations.forEach(a => {
+                    if (a.type === 'image') {
+                        createGroundIcon(
+                            a.url, a.lat, a.lng,
+                            a.diameterMeters || TREE_DIAMETER_METERS,
+                            a.brightness !== undefined ? a.brightness : TREE_BRIGHTNESS
+                        ).addTo(baseLayerGroup);
+                    } else {
+                        L.marker([a.lat, a.lng], {
+                            icon: createLandmarkIcon(a.icon || 'fa-tree', a.color || '#2f855a'),
+                            interactive: false
+                        }).addTo(baseLayerGroup);
+                    }
+                });
+
+                setupSearchEngine();
+
+                function formatDueDate(value) {
+                    if (!value || value === "N/A") return "N/A";
+                    if (typeof value === "string" && /^[A-Za-z]/.test(value)) return value;
+
+                    const date = new Date(value);
+                    if (isNaN(date.getTime())) return value;
+
+                    return date.toLocaleDateString("en-US", {
+                        month: "long",
+                        day: "2-digit",
+                        year: "numeric"
+                    });
+                }
+
+                function mapSheetRow(r, targetMap) {
+                    let idVal = '';
+                    let deceasedVal = '', deceased2Val = '', holderVal = '', deathVal = '', statusVal = '';
+                    let paymentVal = '', lotTypeVal = '', permitsVal = '', remarksVal = '';
+                    let dateValidatedVal = '', validationStatusVal = '';
+                    let amountPaidVal = '';
+
+                    for (let key in r) {
+                        let cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                        if (cleanKey === 'tombid' || cleanKey === 'plotid' || cleanKey === 'id' || cleanKey === 'lotid') {
+                            let rawSheetString = String(r[key]).trim();
+                            const match = rawSheetString.match(/(?:tomb\s*block\s*)?([a-z0-9]+)\s*[-_]?\s*(?:lot\s*)?(\d+)/i);
+                            if (match) {
+                                const block = match[1].toUpperCase();
+                                const lot = match[2].padStart(2, '0');
+                                idVal = `Tomb Block ${block} - Lot ${lot}`;
+                            } else {
+                                idVal = rawSheetString;
+                            }
+                        }
+                        if (cleanKey === 'nameofdeceased' || cleanKey === 'deceasedname' || cleanKey === 'deceased') deceasedVal = r[key];
+                        if (cleanKey === 'nameofdeceased2' || cleanKey === 'deceased2' || cleanKey === 'seconddeceased' || cleanKey === '2nddeceased') deceased2Val = r[key];
+                        if (cleanKey === 'registeredlotholder' || cleanKey === 'lotholder' || cleanKey === 'contactperson' || cleanKey === 'holder') holderVal = r[key];
+                        if (cleanKey === 'deathdate' || cleanKey === 'dateofdeath') deathVal = r[key];
+                        if (cleanKey === 'plotstatus' || cleanKey === 'status') statusVal = r[key];
+                        if (cleanKey === 'paymentstatus' || cleanKey === 'leasestatus' || cleanKey === 'payment') paymentVal = r[key];
+                        if (cleanKey === 'amountpaid' || cleanKey === 'amount') amountPaidVal = r[key];
+                        if (cleanKey === 'lottype' || cleanKey === 'type') lotTypeVal = r[key];
+                        if (cleanKey === 'permits' || cleanKey === 'permit') permitsVal = r[key];
+                        if (cleanKey === 'remarks' || cleanKey === 'remark') remarksVal = r[key];
+                        if (cleanKey === 'datevalidated' || cleanKey === 'validationdate') dateValidatedVal = r[key];
+                        if (cleanKey === 'validationstatus') validationStatusVal = r[key];
+                    }
+
+                    if (idVal) {
+                        targetMap.set(idVal, {
+                            id: idVal,
+                            deceased: deceasedVal || 'Vacant / Unassigned',
+                            deceased2: deceased2Val || 'N/A',
+                            holder: holderVal || 'N/A',
+                            deathDate: formatDueDate(deathVal),
+                            status: statusVal || 'Vacant',
+                            payment: paymentVal || 'N/A',
+                            amountpaid: amountPaidVal || 'N/A',
+                            lotType: lotTypeVal || 'N/A',
+                            permits: permitsVal || 'N/A',
+                            remarks: remarksVal || 'N/A',
+                            dateValidated: formatDueDate(dateValidatedVal),
+                            validationStatus: validationStatusVal || 'N/A'
+                        });
+                    }
+                }
+
+                async function syncDatabases() {
+                    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzxmOhjd3v8cJoTvHfyOcec0pZViUYdGWocyI3r0yF_gGsdB4oLkW8j51r4goR4u9M/exec";
+                    try {
+                        const res = await fetch(`${WEB_APP_URL}?sheet=${encodeURIComponent('Public Cemetery')}`);
+                        const rows = await res.json();
+                        if (rows.error) throw new Error(rows.error);
+                        if (!Array.isArray(rows)) throw new Error("Response is not an array");
+                        
+                        liveDataMapCemetery.clear();
+                        rows.forEach(r => mapSheetRow(r, liveDataMapCemetery));
+                        console.log("Cemetery database updated via Apps Script.");
+                    } catch(err) {
+                        console.warn("Cemetery sheet sync failed:", err);
+                    }
+
+                    refreshAllMapColors();
+                }
+
+                await syncDatabases();
+                setInterval(syncDatabases, 5000); 
+            }
+
+            startApp();
+        });
+    </script>
+</body>
+</html>
